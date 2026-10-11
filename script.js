@@ -7,6 +7,7 @@ const SUPABASE_URL = "https://jxbxshzbesqyefcrfxqc.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_z4tTIcqtbM8h9fVFfHm2Mw_NfzWVIYx";
 
 const SITE_URL = "https://eronrou-ofc.github.io/eronrou-DevStore/";
+const ADMIN_EMAIL = "eronrou@gmail.com";
 
 const supabaseClient = window.supabase.createClient(
   SUPABASE_URL,
@@ -166,8 +167,13 @@ $("auth-form")?.addEventListener("submit", async event => {
 // SESSION / ACCOUNT UI
 // ==========================================
 
+
+
 function updateAuthUI(user) {
   currentUser = user;
+
+  const isAdmin =
+    user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
 
   $("auth-status").innerHTML = user
     ? "<i></i> CONNECTED"
@@ -175,50 +181,37 @@ function updateAuthUI(user) {
 
   $("open-auth")?.classList.toggle("hidden", !!user);
   $("sign-out")?.classList.toggle("hidden", !user);
-  $("account-gate")?.classList.toggle("hidden", !!user);
-  $("creator-dashboard")?.classList.toggle("hidden", !user);
+
+  // Le tableau de bord créateur est réservé à ton compte.
+  $("account-gate")?.classList.toggle("hidden", isAdmin);
+  $("creator-dashboard")?.classList.toggle("hidden", !isAdmin);
+
+  if ($("account-gate")) {
+    const message = $("account-gate").querySelector("p");
+
+    if (message && user && !isAdmin) {
+      message.textContent =
+        "Cette boutique est gérée par son propriétaire. " +
+        "Seul le compte administrateur peut publier des assets.";
+    }
+  }
 
   if ($("profile-email")) {
-    $("profile-email").textContent =
-      user?.email || "Creator";
+    $("profile-email").textContent = user?.email || "Creator";
   }
 
   if ($("profile-id")) {
-    $("profile-id").textContent =
-      user ? "ID: " + user.id : "";
+    $("profile-id").textContent = user ? "ID: " + user.id : "";
   }
 
-  if (user) {
+  if (isAdmin) {
     loadProfile();
     loadMyProducts();
   } else {
-    $("profile-username")?.setAttribute("value", "");
-    $("profile-avatar-url")?.setAttribute("value", "");
-
-    if ($("avatar")) {
-      $("avatar").style.backgroundImage = "";
-      $("avatar").textContent = "E";
-    }
-
-    $("my-product-list").innerHTML =
-      '<p class="muted">Sign in to load your listings.</p>';
-
-    $("listing-count").textContent = "0";
+    $("my-product-list")?.replaceChildren();
+    if ($("listing-count")) $("listing-count").textContent = "0";
   }
 }
-
-$("sign-out")?.addEventListener("click", async () => {
-  const { error } = await supabaseClient.auth.signOut();
-
-  if (error) {
-    showToast(error.message);
-    return;
-  }
-
-  showPage("store");
-  showToast("Signed out successfully.");
-});
-
 // ==========================================
 // PROFILE — LOAD
 // ==========================================
