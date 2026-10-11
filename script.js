@@ -4,7 +4,7 @@ const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_z4tTIcqtbM8h9fVFfHm2Mw_NfzWVIYx
 
 
 // Adresse de ton site GitHub Pages
-const SITE_URL = "https://eronrou-ofc.github.io/eronrou-dev-store/";
+const SITE_URL = "https://eronrou-ofc.github.io/eronrou-DevStore/";
 
 // Initialisation
 const supabaseClient = window.supabase.createClient(
