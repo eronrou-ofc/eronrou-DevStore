@@ -75,7 +75,8 @@ function closeAuth() {
 }
 
 $("open-auth")?.addEventListener("click", openAuth);
-$("gate-sign-in")?.addEventListener("click", openAuth);
+$("gate-open-auth")?.addEventListener("click", openAuth);
+$("auth-backdrop")?.addEventListener("click", closeAuth);
 $("close-auth")?.addEventListener("click", closeAuth);
 
 $("auth-modal")?.addEventListener("click", event => {
