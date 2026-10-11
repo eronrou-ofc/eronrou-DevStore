@@ -664,14 +664,18 @@ $("product-form")?.addEventListener("submit", async event => {
   const values = new FormData(form);
 
   const title = String(values.get("title") || "").trim();
-  const category = String(values.get("category") || "");
+  const category = String(values.get("category") || "").trim();
   const price = Number(values.get("price"));
   const description = String(values.get("description") || "").trim();
   const image_url = String(values.get("image_url") || "").trim();
-  const file_path = String(values.get("download_url") || "").trim();
+  const file = values.get("product-file");
 
   if (!title || !category || !description) {
-    showMessage("form-message", "Complete tous les champs obligatoires.", true);
+    showMessage(
+      "form-message",
+      "Complète tous les champs obligatoires.",
+      true
+    );
     return;
   }
 
@@ -684,15 +688,10 @@ $("product-form")?.addEventListener("submit", async event => {
     return;
   }
 
-  if (
-    !file_path ||
-    file_path.startsWith("/") ||
-    file_path.includes("..") ||
-    /^https?:\/\//i.test(file_path)
-  ) {
+  if (!(file instanceof File) || file.size === 0) {
     showMessage(
       "form-message",
-      "Entre le chemin du fichier dans paid-assets, pas une URL.",
+      "Sélectionne un fichier à vendre.",
       true
     );
     return;
@@ -701,11 +700,15 @@ $("product-form")?.addEventListener("submit", async event => {
   if (image_url) {
     try {
       const parsed = new URL(image_url);
-      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
-        throw new Error("Invalid URL");
+      if (!["https:", "http:"].includes(parsed.protocol)) {
+        throw new Error("URL invalide");
       }
     } catch {
-      showMessage("form-message", "URL de l'image invalide.", true);
+      showMessage(
+        "form-message",
+        "URL de l'image invalide.",
+        true
+      );
       return;
     }
   }
@@ -713,10 +716,27 @@ $("product-form")?.addEventListener("submit", async event => {
   const submit = form.querySelector('button[type="submit"]');
   if (submit) submit.disabled = true;
 
-  showMessage("form-message", "Publishing asset...");
+  let uploadedPath = null;
 
   try {
-    const { error } = await supabaseClient
+    showMessage("form-message", "Envoi du fichier en cours...");
+
+    const safeName = file.name.replace(/[^\w.\-() ]/g, "_");
+    const uniqueName = crypto.randomUUID() + "-" + safeName;
+    uploadedPath = `${currentUser.id}/${uniqueName}`;
+
+    const { error: uploadError } = await supabaseClient.storage
+      .from("paid-assets")
+      .upload(uploadedPath, file, {
+        upsert: false,
+        contentType: file.type || "application/octet-stream"
+      });
+
+    if (uploadError) throw uploadError;
+
+    showMessage("form-message", "Fichier envoyé. Publication en cours...");
+
+    const { error: insertError } = await supabaseClient
       .from("products")
       .insert({
         title,
@@ -724,20 +744,37 @@ $("product-form")?.addEventListener("submit", async event => {
         price,
         description,
         image_url: image_url || null,
-        file_path,
+        file_path: uploadedPath,
         seller_id: currentUser.id,
         published: true
       });
 
-    if (error) throw error;
+    if (insertError) throw insertError;
 
     form.reset();
-    showMessage("form-message", "Asset published successfully!");
+
+    showMessage("form-message", "Asset publié avec succès !");
     await loadMyProducts();
     await loadProducts();
     showToast("Asset publié.");
   } catch (error) {
-    showMessage("form-message", error.message, true);
+    console.error("Erreur publication :", error);
+
+    if (uploadedPath) {
+      const { error: cleanupError } = await supabaseClient.storage
+        .from("paid-assets")
+        .remove([uploadedPath]);
+
+      if (cleanupError) {
+        console.error("Nettoyage du fichier impossible :", cleanupError);
+      }
+    }
+
+    showMessage(
+      "form-message",
+      error.message || "Impossible de publier cet asset.",
+      true
+    );
   } finally {
     if (submit) submit.disabled = false;
   }
