@@ -5,7 +5,7 @@
    3) Match these names to your existing table before publishing.
    Never put a service_role/secret key in frontend code.
 */
-const SUPABASE_URL = "https://jxbxshzbesqyefcrfxqc.supabase.co/rest/v1/";
+const SUPABASE_URL = "https://jxbxshzbesqyefcrfxqc.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_z4tTIcqtbM8h9fVFfHm2Mw_NfzWVIYx";
 
 let supabaseClient = null;
