@@ -577,6 +577,7 @@ async function downloadAsset(productId) {
     window.location.assign(data.url);
   } catch (error) {
     console.error("Download error:", error);
+    console.error("Détails du téléchargement :", await error.context?.text?.());
     showToast(error.message || "Téléchargement impossible.");
   }
 }
