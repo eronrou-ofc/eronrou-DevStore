@@ -1,11 +1,10 @@
 
 /* ==========================================
-   ERONROU DEV STORE — AUTH + PROFILE
+   ERONROU DEV STORE — AUTH + STRIPE + DOWNLOADS
    ========================================== */
 
 const SUPABASE_URL = "https://jxbxshzbesqyefcrfxqc.supabase.co";
 const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_z4tTIcqtbM8h9fVFfHm2Mw_NfzWVIYx";
-
 const SITE_URL = "https://eronrou-ofc.github.io/eronrou-DevStore/";
 const ADMIN_EMAIL = "eronrou@gmail.com";
 
@@ -16,8 +15,14 @@ const supabaseClient = window.supabase.createClient(
 
 let currentUser = null;
 let authMode = "signin";
+let products = [];
+let purchasedProductIds = new Set();
 
 const $ = (id) => document.getElementById(id);
+
+function isAdmin() {
+  return currentUser?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+}
 
 function showMessage(id, message, isError = false) {
   const element = $(id);
@@ -33,8 +38,14 @@ function showToast(message) {
 
   toast.textContent = message;
   toast.classList.add("show");
+  setTimeout(() => toast.classList.remove("show"), 3500);
+}
 
-  setTimeout(() => toast.classList.remove("show"), 3000);
+function formatPrice(price) {
+  return new Intl.NumberFormat("fr-FR", {
+    style: "currency",
+    currency: "EUR"
+  }).format(Number(price));
 }
 
 // ==========================================
@@ -49,7 +60,7 @@ function showPage(page) {
     button.classList.toggle("active", button.dataset.page === page);
   });
 
-  if (page === "dashboard" && currentUser) {
+  if (page === "dashboard" && isAdmin()) {
     loadProfile();
     loadMyProducts();
   }
@@ -92,11 +103,12 @@ document.querySelectorAll("[data-auth-mode]").forEach(button => {
       tab.classList.toggle("active", tab === button);
     });
 
-    $("auth-submit").textContent =
-      authMode === "signup" ? "Create account ↗" : "Sign in ↗";
+    if ($("auth-submit")) {
+      $("auth-submit").textContent =
+        authMode === "signup" ? "Create account ↗" : "Sign in ↗";
+    }
 
     const password = $("auth-form")?.elements.namedItem("password");
-
     if (password) {
       password.autocomplete =
         authMode === "signup" ? "new-password" : "current-password";
@@ -116,9 +128,9 @@ $("auth-form")?.addEventListener("submit", async event => {
   const form = event.currentTarget;
   const email = form.elements.namedItem("email").value.trim();
   const password = form.elements.namedItem("password").value;
-
   const submit = $("auth-submit");
-  submit.disabled = true;
+
+  if (submit) submit.disabled = true;
 
   try {
     if (authMode === "signup") {
@@ -127,9 +139,7 @@ $("auth-form")?.addEventListener("submit", async event => {
       const { data, error } = await supabaseClient.auth.signUp({
         email,
         password,
-        options: {
-          emailRedirectTo: SITE_URL
-        }
+        options: { emailRedirectTo: SITE_URL }
       });
 
       if (error) throw error;
@@ -159,37 +169,61 @@ $("auth-form")?.addEventListener("submit", async event => {
   } catch (error) {
     showMessage("auth-message", error.message, true);
   } finally {
-    submit.disabled = false;
+    if (submit) submit.disabled = false;
   }
 });
+
+// ==========================================
+// PURCHASE HISTORY
+// ==========================================
+
+async function loadPurchases() {
+  purchasedProductIds = new Set();
+
+  if (!currentUser) return;
+
+  const { data, error } = await supabaseClient
+    .from("purchases")
+    .select("product_id")
+    .eq("user_id", currentUser.id)
+    .eq("payment_status", "paid");
+
+  if (error) {
+    console.error("Unable to load purchases:", error.message);
+    return;
+  }
+
+  purchasedProductIds = new Set(
+    (data || []).map(item => String(item.product_id))
+  );
+}
 
 // ==========================================
 // SESSION / ACCOUNT UI
 // ==========================================
 
-
-
 function updateAuthUI(user) {
   currentUser = user;
 
-  const isAdmin =
-    user?.email?.toLowerCase() === ADMIN_EMAIL.toLowerCase();
+  const admin = isAdmin();
 
-  $("auth-status").innerHTML = user
-    ? "<i></i> CONNECTED"
-    : "<i></i> GUEST MODE";
+  if ($("auth-status")) {
+    $("auth-status").innerHTML = user
+      ? "<i></i> CONNECTED"
+      : "<i></i> GUEST MODE";
+  }
 
   $("open-auth")?.classList.toggle("hidden", !!user);
   $("sign-out")?.classList.toggle("hidden", !user);
 
-  // Le tableau de bord créateur est réservé à ton compte.
-  $("account-gate")?.classList.toggle("hidden", isAdmin);
-  $("creator-dashboard")?.classList.toggle("hidden", !isAdmin);
+  // Only the owner can publish assets.
+  $("account-gate")?.classList.toggle("hidden", admin);
+  $("creator-dashboard")?.classList.toggle("hidden", !admin);
 
   if ($("account-gate")) {
     const message = $("account-gate").querySelector("p");
 
-    if (message && user && !isAdmin) {
+    if (message && user && !admin) {
       message.textContent =
         "Cette boutique est gérée par son propriétaire. " +
         "Seul le compte administrateur peut publier des assets.";
@@ -204,20 +238,35 @@ function updateAuthUI(user) {
     $("profile-id").textContent = user ? "ID: " + user.id : "";
   }
 
-  if (isAdmin) {
+  if (admin) {
     loadProfile();
     loadMyProducts();
   } else {
     $("my-product-list")?.replaceChildren();
-    if ($("listing-count")) $("listing-count").textContent = "0";
+
+    if ($("listing-count")) {
+      $("listing-count").textContent = "0";
+    }
   }
 }
+
+$("sign-out")?.addEventListener("click", async () => {
+  const { error } = await supabaseClient.auth.signOut();
+
+  if (error) {
+    showToast(error.message);
+    return;
+  }
+
+  showToast("Signed out.");
+});
+
 // ==========================================
 // PROFILE — LOAD
 // ==========================================
 
 async function loadProfile() {
-  if (!currentUser) return;
+  if (!currentUser || !isAdmin()) return;
 
   const { data, error } = await supabaseClient
     .from("profiles")
@@ -236,7 +285,6 @@ async function loadProfile() {
     renderAvatar(data.avatar_url, data.username);
   } else {
     const defaultName = currentUser.email?.split("@")[0] || "Creator";
-
     $("profile-username").value = defaultName;
     $("profile-avatar-url").value = "";
     renderAvatar("", defaultName);
@@ -252,7 +300,8 @@ function renderAvatar(url, username) {
     (username || currentUser?.email || "E").charAt(0).toUpperCase();
 
   if (url) {
-    avatar.style.backgroundImage = `url("${url.replace(/["\\]/g, "")}")`;
+    avatar.style.backgroundImage =
+      `url("${url.replace(/["\\]/g, "")}")`;
     avatar.style.backgroundSize = "cover";
     avatar.style.backgroundPosition = "center";
     avatar.textContent = "";
@@ -266,8 +315,8 @@ function renderAvatar(url, username) {
 $("profile-form")?.addEventListener("submit", async event => {
   event.preventDefault();
 
-  if (!currentUser) {
-    showMessage("profile-message", "Please sign in first.", true);
+  if (!currentUser || !isAdmin()) {
+    showMessage("profile-message", "Admin access required.", true);
     return;
   }
 
@@ -300,7 +349,7 @@ $("profile-form")?.addEventListener("submit", async event => {
     'button[type="submit"]'
   );
 
-  saveButton.disabled = true;
+  if (saveButton) saveButton.disabled = true;
   showMessage("profile-message", "Saving profile...");
 
   try {
@@ -337,15 +386,13 @@ $("profile-form")?.addEventListener("submit", async event => {
   } catch (error) {
     showMessage("profile-message", error.message, true);
   } finally {
-    saveButton.disabled = false;
+    if (saveButton) saveButton.disabled = false;
   }
 });
 
 // ==========================================
 // PRODUCTS — PUBLIC CATALOG
 // ==========================================
-
-let products = [];
 
 async function loadProducts() {
   const { data, error } = await supabaseClient
@@ -355,33 +402,40 @@ async function loadProducts() {
     .order("created_at", { ascending: false });
 
   if (error) {
-    $("connection-note").textContent =
-      "Could not load products: " + error.message;
+    if ($("connection-note")) {
+      $("connection-note").textContent =
+        "Could not load products: " + error.message;
+    }
     return;
   }
 
   products = data || [];
-  $("connection-note").classList.add("hidden");
+
+  await loadPurchases();
+
+  $("connection-note")?.classList.add("hidden");
   renderProducts();
 }
 
 function renderProducts() {
   const grid = $("product-grid");
-  const search = ($("search").value || "").toLowerCase();
-  const category = $("category-filter").value;
+  if (!grid) return;
+
+  const search = ($("search")?.value || "").toLowerCase();
+  const category = $("category-filter")?.value || "all";
 
   grid.replaceChildren();
 
   const filtered = products.filter(product => {
-    const matchesSearch =
-      `${product.title} ${product.description} ${product.category}`
-        .toLowerCase().includes(search);
+    const text =
+      `${product.title} ${product.description || ""} ${product.category || ""}`
+        .toLowerCase();
 
-    return matchesSearch &&
+    return text.includes(search) &&
       (category === "all" || product.category === category);
   });
 
-  $("empty-products").classList.toggle("hidden", filtered.length > 0);
+  $("empty-products")?.classList.toggle("hidden", filtered.length > 0);
 
   filtered.forEach(product => {
     const card = document.createElement("article");
@@ -399,6 +453,7 @@ function renderProducts() {
     const tag = document.createElement("span");
     tag.className = "art-tag";
     tag.textContent = product.category || "ASSET";
+    art.append(tag);
 
     const info = document.createElement("div");
     info.className = "product-info";
@@ -411,19 +466,31 @@ function renderProducts() {
 
     const price = document.createElement("span");
     price.className = "price";
-    price.textContent = Number(product.price) === 0
-      ? "FREE"
-      : "$" + Number(product.price).toFixed(2);
+    price.textContent = formatPrice(product.price);
+
+    meta.append(categoryLabel, price);
 
     const title = document.createElement("h3");
     title.textContent = product.title;
 
     const description = document.createElement("p");
-    description.textContent = product.description;
+    description.textContent = product.description || "";
 
-    meta.append(categoryLabel, price);
-    info.append(meta, title, description);
-    art.append(tag);
+    const action = document.createElement("button");
+    action.type = "button";
+    action.className = "buy-button";
+
+    const owned = purchasedProductIds.has(String(product.id));
+
+    if (owned) {
+      action.textContent = "Télécharger ↓";
+      action.addEventListener("click", () => downloadAsset(product.id));
+    } else {
+      action.textContent = "Acheter — " + formatPrice(product.price);
+      action.addEventListener("click", () => buyAsset(product.id));
+    }
+
+    info.append(meta, title, description, action);
     card.append(art, info);
     grid.append(card);
   });
@@ -433,13 +500,97 @@ $("search")?.addEventListener("input", renderProducts);
 $("category-filter")?.addEventListener("change", renderProducts);
 
 // ==========================================
-// MY LISTINGS
+// STRIPE CHECKOUT
+// ==========================================
+
+async function buyAsset(productId) {
+  if (!currentUser) {
+    showToast("Connecte-toi avant d'acheter.");
+    openAuth();
+    return;
+  }
+
+  const product = products.find(
+    item => String(item.id) === String(productId)
+  );
+
+  if (!product) {
+    showToast("Asset introuvable.");
+    return;
+  }
+
+  if (!Number.isFinite(Number(product.price)) || Number(product.price) <= 0) {
+    showToast("Cet asset n'a pas de prix valide.");
+    return;
+  }
+
+  showToast("Préparation du paiement...");
+
+  try {
+    const { data, error } = await supabaseClient.functions.invoke(
+      "create-checkout-session",
+      { body: { product_id: String(productId) } }
+    );
+
+    if (error) throw error;
+    if (!data?.url) {
+      throw new Error(data?.error || "Lien de paiement indisponible.");
+    }
+
+    window.location.assign(data.url);
+  } catch (error) {
+    console.error("Checkout error:", error);
+    showToast(error.message || "Impossible de démarrer le paiement.");
+  }
+}
+
+// ==========================================
+// SECURE DOWNLOAD
+// ==========================================
+
+async function downloadAsset(productId) {
+  if (!currentUser) {
+    showToast("Connecte-toi pour télécharger.");
+    openAuth();
+    return;
+  }
+
+  if (!purchasedProductIds.has(String(productId))) {
+    showToast("Achat non confirmé. Actualise tes achats.");
+    await loadProducts();
+    return;
+  }
+
+  showToast("Vérification de ton achat...");
+
+  try {
+    const { data, error } = await supabaseClient.functions.invoke(
+      "download-asset",
+      { body: { product_id: String(productId) } }
+    );
+
+    if (error) throw error;
+    if (!data?.url) {
+      throw new Error(data?.error || "Lien de téléchargement indisponible.");
+    }
+
+    window.location.assign(data.url);
+  } catch (error) {
+    console.error("Download error:", error);
+    showToast(error.message || "Téléchargement impossible.");
+  }
+}
+
+// ==========================================
+// MY LISTINGS — ADMIN ONLY
 // ==========================================
 
 async function loadMyProducts() {
-  if (!currentUser) return;
+  if (!currentUser || !isAdmin()) return;
 
   const list = $("my-product-list");
+  if (!list) return;
+
   list.textContent = "Loading your listings...";
 
   const { data, error } = await supabaseClient
@@ -453,20 +604,25 @@ async function loadMyProducts() {
     return;
   }
 
-  $("listing-count").textContent = String(data.length);
+  const items = data || [];
+
+  if ($("listing-count")) {
+    $("listing-count").textContent = String(items.length);
+  }
+
   list.replaceChildren();
 
-  if (!data.length) {
+  if (!items.length) {
     list.textContent = "You haven't published any assets yet.";
     return;
   }
 
-  data.forEach(product => {
+  items.forEach(product => {
     const row = document.createElement("div");
     row.className = "my-product-row";
 
     const name = document.createElement("span");
-    name.textContent = product.title;
+    name.textContent = product.title + " — " + formatPrice(product.price);
 
     const status = document.createElement("span");
     status.className = "muted";
@@ -477,40 +633,80 @@ async function loadMyProducts() {
   });
 }
 
-$("refresh-products")?.addEventListener("click", () => {
-  loadMyProducts();
-  loadProducts();
+$("refresh-products")?.addEventListener("click", async () => {
+  await loadMyProducts();
+  await loadProducts();
 });
 
 // ==========================================
-// PUBLISH ASSET
-// Requires products table columns:
-// title, category, price, description, image_url,
-// file_path, seller_id, published
+// PUBLISH ASSET — ADMIN ONLY
+// download_url field must contain a Storage path
 // ==========================================
 
 $("product-form")?.addEventListener("submit", async event => {
   event.preventDefault();
 
-  if (!currentUser) {
-    openAuth();
+  if (!currentUser || !isAdmin()) {
+    showMessage(
+      "form-message",
+      "Seul eronrou@gmail.com peut publier des assets.",
+      true
+    );
     return;
   }
 
   const form = event.currentTarget;
   const values = new FormData(form);
 
-  const title = String(values.get("title")).trim();
-  const category = String(values.get("category"));
+  const title = String(values.get("title") || "").trim();
+  const category = String(values.get("category") || "");
   const price = Number(values.get("price"));
-  const description = String(values.get("description")).trim();
+  const description = String(values.get("description") || "").trim();
   const image_url = String(values.get("image_url") || "").trim();
-  const download_url = String(values.get("download_url") || "").trim();
+  const file_path = String(values.get("download_url") || "").trim();
 
-  if (!Number.isFinite(price) || price < 0) {
-    showMessage("form-message", "Enter a valid price.", true);
+  if (!title || !category || !description) {
+    showMessage("form-message", "Complete tous les champs obligatoires.", true);
     return;
   }
+
+  if (!Number.isFinite(price) || price <= 0) {
+    showMessage(
+      "form-message",
+      "Le prix doit être supérieur à 0 €.",
+      true
+    );
+    return;
+  }
+
+  if (
+    !file_path ||
+    file_path.startsWith("/") ||
+    file_path.includes("..") ||
+    /^https?:\/\//i.test(file_path)
+  ) {
+    showMessage(
+      "form-message",
+      "Entre le chemin du fichier dans paid-assets, pas une URL.",
+      true
+    );
+    return;
+  }
+
+  if (image_url) {
+    try {
+      const parsed = new URL(image_url);
+      if (parsed.protocol !== "https:" && parsed.protocol !== "http:") {
+        throw new Error("Invalid URL");
+      }
+    } catch {
+      showMessage("form-message", "URL de l'image invalide.", true);
+      return;
+    }
+  }
+
+  const submit = form.querySelector('button[type="submit"]');
+  if (submit) submit.disabled = true;
 
   showMessage("form-message", "Publishing asset...");
 
@@ -523,7 +719,7 @@ $("product-form")?.addEventListener("submit", async event => {
         price,
         description,
         image_url: image_url || null,
-        file_path: download_url || null,
+        file_path,
         seller_id: currentUser.id,
         published: true
       });
@@ -534,13 +730,16 @@ $("product-form")?.addEventListener("submit", async event => {
     showMessage("form-message", "Asset published successfully!");
     await loadMyProducts();
     await loadProducts();
+    showToast("Asset publié.");
   } catch (error) {
     showMessage("form-message", error.message, true);
+  } finally {
+    if (submit) submit.disabled = false;
   }
 });
 
 // ==========================================
-// AUTH SESSION
+// PAYMENT RETURN
 // ==========================================
 
 async function initialize() {
@@ -554,10 +753,34 @@ async function initialize() {
 
   updateAuthUI(data.session?.user || null);
   await loadProducts();
+
+  const params = new URLSearchParams(window.location.search);
+
+  if (params.get("payment") === "success") {
+    showToast("Paiement terminé. Vérification de ton achat...");
+
+    // The Stripe webhook may take a moment to record the purchase.
+    setTimeout(async () => {
+      await loadProducts();
+      showToast(
+        "Achats actualisés. Si le paiement vient d'être effectué, réessaie dans quelques secondes."
+      );
+    }, 3000);
+
+    window.history.replaceState({}, document.title, SITE_URL);
+  } else if (params.get("payment") === "cancelled") {
+    showToast("Paiement annulé.");
+    window.history.replaceState({}, document.title, SITE_URL);
+  }
 }
 
 supabaseClient.auth.onAuthStateChange((_event, session) => {
   updateAuthUI(session?.user || null);
+
+  // Defer network requests until after the auth callback completes.
+  setTimeout(() => {
+    loadProducts();
+  }, 0);
 });
 
 initialize();

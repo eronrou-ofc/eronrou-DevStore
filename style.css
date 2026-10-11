@@ -588,3 +588,26 @@
         text-align: center;
     }
 }
+
+.buy-button {
+  width: 100%;
+  margin-top: 16px;
+  padding: 12px 16px;
+  border: 1px solid rgba(255, 255, 255, 0.3);
+  border-radius: 10px;
+  background: #fff;
+  color: #080808;
+  font-weight: 700;
+  cursor: pointer;
+  transition: transform 0.2s, background 0.2s;
+}
+
+.buy-button:hover {
+  background: #d8d8d8;
+  transform: translateY(-2px);
+}
+
+.buy-button:focus-visible {
+  outline: 2px solid #fff;
+  outline-offset: 3px;
+}
